@@ -8,6 +8,7 @@ Connect Home Assistant STT directly to a FunASR WebSocket server (`ws://host:por
 - Config flow (UI setup)
 - Direct WebSocket call to FunASR (`offline` / `2pass` / `online`)
 - HACS custom repository compatible
+- Reliable input handling for both full WAV containers and raw PCM streams from Home Assistant
 
 ## Requirements
 
@@ -38,3 +39,4 @@ Connect Home Assistant STT directly to a FunASR WebSocket server (`ws://host:por
 
 - This integration avoids launching another persistent bridge service on your ASR host.
 - It only adds execution on Home Assistant side when STT is invoked.
+- Version `0.1.1` adds a WAV → raw PCM fallback path so HA streams without a RIFF header can still be sent to FunASR reliably.

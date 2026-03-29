@@ -95,8 +95,8 @@ class FunAsrWsSttEntity(stt.SpeechToTextEntity):
         timeout = int(cfg.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
 
         try:
-            wav_bytes = b"".join([chunk async for chunk in stream])
-            pcm, sample_rate = _wav_to_pcm(wav_bytes)
+            audio_bytes = b"".join([chunk async for chunk in stream])
+            pcm, sample_rate = _extract_pcm_from_stream(audio_bytes, metadata)
 
             uri = f"wss://{host}:{port}" if use_ssl else f"ws://{host}:{port}"
             ssl_ctx = None
@@ -125,6 +125,32 @@ class FunAsrWsSttEntity(stt.SpeechToTextEntity):
         except Exception:  # noqa: BLE001
             _LOGGER.exception("FunASR websocket STT failed")
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
+
+
+def _extract_pcm_from_stream(
+    audio_bytes: bytes, metadata: stt.SpeechMetadata
+) -> tuple[bytes, int]:
+    """Extract PCM bytes from HA audio stream.
+
+    Home Assistant may provide either a full WAV container or raw PCM bytes
+    that already match the declared metadata. Prefer WAV parsing when possible,
+    and reliably fall back to raw PCM when the stream is not a RIFF/WAV file.
+    """
+    try:
+        return _wav_to_pcm(audio_bytes)
+    except wave.Error as err:
+        sample_rate = int(metadata.sample_rate)
+        _LOGGER.debug(
+            "Input is not RIFF/WAV (%s); falling back to raw PCM using metadata "
+            "codec=%s sample_rate=%s channels=%s bit_rate=%s len=%s",
+            err,
+            metadata.codec,
+            sample_rate,
+            metadata.channel,
+            metadata.bit_rate,
+            len(audio_bytes),
+        )
+        return audio_bytes, sample_rate
 
 
 def _wav_to_pcm(wav_bytes: bytes) -> tuple[bytes, int]:

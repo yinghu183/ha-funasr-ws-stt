@@ -1,7 +1,7 @@
 {
   "domain": "funasr_ws_stt",
   "name": "FunASR WebSocket STT",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "documentation": "https://github.com/yinghu183/ha-funasr-ws-stt",
   "issue_tracker": "https://github.com/yinghu183/ha-funasr-ws-stt/issues",
   "codeowners": [
