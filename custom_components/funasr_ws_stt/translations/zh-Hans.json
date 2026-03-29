@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FunASR WebSocket 语音识别",
+        "description": "将 Home Assistant 的 STT 连接到 FunASR WebSocket 服务。",
+        "data": {
+          "name": "名称",
+          "host": "主机",
+          "port": "端口",
+          "ssl": "启用 SSL",
+          "mode": "识别模式",
+          "hotwords": "热词（可选）",
+          "itn": "启用 ITN",
+          "timeout": "超时（秒）"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "FunASR WebSocket 语音识别选项",
+        "data": {
+          "mode": "识别模式",
+          "hotwords": "热词（可选）",
+          "itn": "启用 ITN",
+          "timeout": "超时（秒）"
+        }
+      }
+    }
+  }
+}
