@@ -1,7 +1,7 @@
 {
   "domain": "funasr_ws_stt",
-  "name": "FunASR WebSocket STT",
-  "version": "0.1.1",
+  "name": "Doubao ASR",
+  "version": "0.2.0",
   "documentation": "https://github.com/yinghu183/ha-funasr-ws-stt",
   "issue_tracker": "https://github.com/yinghu183/ha-funasr-ws-stt/issues",
   "codeowners": [
@@ -9,7 +9,5 @@
   ],
   "config_flow": true,
   "iot_class": "local_push",
-  "requirements": [
-    "websockets>=12.0"
-  ]
+  "requirements": []
 }

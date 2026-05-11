@@ -1,15 +1,11 @@
-"""STT platform for FunASR WebSocket."""
+"""STT platform for Doubao ASR HTTP."""
 
 from __future__ import annotations
 
-import asyncio
-import io
-import json
 import logging
-import wave
 from collections.abc import AsyncIterable
 
-import websockets
+import aiohttp
 
 from homeassistant.components import stt
 from homeassistant.config_entries import ConfigEntry
@@ -18,22 +14,13 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     CONF_HOST,
-    CONF_HOTWORDS,
-    CONF_ITN,
-    CONF_MODE,
     CONF_NAME,
     CONF_PORT,
-    CONF_SSL,
     CONF_TIMEOUT,
-    DEFAULT_HOTWORDS,
-    DEFAULT_ITN,
-    DEFAULT_MODE,
     DEFAULT_TIMEOUT,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-CHUNK_SIZE = 3200  # 100ms at 16k mono 16bit
 
 
 async def async_setup_entry(
@@ -41,12 +28,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up FunASR WS STT entity."""
-    async_add_entities([FunAsrWsSttEntity(entry)])
+    """Set up Doubao ASR STT entity."""
+    async_add_entities([DoubaoAsrSttEntity(entry)])
 
 
-class FunAsrWsSttEntity(stt.SpeechToTextEntity):
-    """FunASR WebSocket STT entity."""
+class DoubaoAsrSttEntity(stt.SpeechToTextEntity):
+    """Doubao ASR STT entity."""
 
     def __init__(self, entry: ConfigEntry) -> None:
         self._entry = entry
@@ -84,138 +71,35 @@ class FunAsrWsSttEntity(stt.SpeechToTextEntity):
     async def async_process_audio_stream(
         self, metadata: stt.SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> stt.SpeechResult:
-        """Process stream with FunASR websocket server."""
+        """Process audio stream via Doubao ASR HTTP service."""
         cfg = self._merged
         host = cfg[CONF_HOST]
         port = cfg[CONF_PORT]
-        use_ssl = cfg[CONF_SSL]
-        mode = cfg.get(CONF_MODE, DEFAULT_MODE)
-        hotwords = cfg.get(CONF_HOTWORDS, DEFAULT_HOTWORDS)
-        itn = bool(cfg.get(CONF_ITN, DEFAULT_ITN))
-        timeout = int(cfg.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+        timeout_sec = int(cfg.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+
+        url = f"http://{host}:{port}/transcribe"
 
         try:
             audio_bytes = b"".join([chunk async for chunk in stream])
-            pcm, sample_rate = _extract_pcm_from_stream(audio_bytes, metadata)
 
-            uri = f"wss://{host}:{port}" if use_ssl else f"ws://{host}:{port}"
-            ssl_ctx = None
-            if use_ssl:
-                import ssl
+            timeout = aiohttp.ClientTimeout(total=timeout_sec)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                data = aiohttp.FormData()
+                data.add_field("file", audio_bytes, filename="audio.wav",
+                               content_type="audio/wav")
+                async with session.post(url, data=data) as resp:
+                    result = await resp.json()
 
-                ssl_ctx = ssl.SSLContext()
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl.CERT_NONE
-
-            async with asyncio.timeout(timeout):
-                transcript = await _transcribe_via_funasr_ws(
-                    uri=uri,
-                    ssl_context=ssl_ctx,
-                    pcm=pcm,
-                    sample_rate=sample_rate,
-                    mode=mode,
-                    hotwords=hotwords,
-                    itn=itn,
+            if result.get("success"):
+                text = result.get("text", "").strip()
+                return stt.SpeechResult(
+                    text if text else None,
+                    stt.SpeechResultState.SUCCESS if text else stt.SpeechResultState.ERROR,
                 )
-
-            if transcript is None:
+            else:
+                _LOGGER.warning("Doubao ASR error: %s", result.get("error", "unknown"))
                 return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
 
-            return stt.SpeechResult(transcript, stt.SpeechResultState.SUCCESS)
-        except Exception:  # noqa: BLE001
-            _LOGGER.exception("FunASR websocket STT failed")
+        except Exception:
+            _LOGGER.exception("Doubao ASR STT failed")
             return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
-
-
-def _extract_pcm_from_stream(
-    audio_bytes: bytes, metadata: stt.SpeechMetadata
-) -> tuple[bytes, int]:
-    """Extract PCM bytes from HA audio stream.
-
-    Home Assistant may provide either a full WAV container or raw PCM bytes
-    that already match the declared metadata. Prefer WAV parsing when possible,
-    and reliably fall back to raw PCM when the stream is not a RIFF/WAV file.
-    """
-    try:
-        return _wav_to_pcm(audio_bytes)
-    except wave.Error as err:
-        sample_rate = int(metadata.sample_rate)
-        _LOGGER.debug(
-            "Input is not RIFF/WAV (%s); falling back to raw PCM using metadata "
-            "codec=%s sample_rate=%s channels=%s bit_rate=%s len=%s",
-            err,
-            metadata.codec,
-            sample_rate,
-            metadata.channel,
-            metadata.bit_rate,
-            len(audio_bytes),
-        )
-        return audio_bytes, sample_rate
-
-
-def _wav_to_pcm(wav_bytes: bytes) -> tuple[bytes, int]:
-    """Extract PCM frames and sample rate from WAV bytes."""
-    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-        channels = wf.getnchannels()
-        sampwidth = wf.getsampwidth()
-        sample_rate = wf.getframerate()
-        if channels != 1:
-            raise ValueError(f"unsupported_channels:{channels}")
-        if sampwidth != 2:
-            raise ValueError(f"unsupported_sample_width:{sampwidth}")
-        pcm = wf.readframes(wf.getnframes())
-    return pcm, sample_rate
-
-
-async def _transcribe_via_funasr_ws(
-    *,
-    uri: str,
-    ssl_context,
-    pcm: bytes,
-    sample_rate: int,
-    mode: str,
-    hotwords: str,
-    itn: bool,
-) -> str | None:
-    """Send PCM stream to FunASR websocket and collect final transcript."""
-    init_payload = {
-        "mode": mode,
-        "chunk_size": [5, 10, 5],
-        "chunk_interval": 10,
-        "encoder_chunk_look_back": 4,
-        "decoder_chunk_look_back": 0,
-        "audio_fs": sample_rate,
-        "wav_name": "ha",
-        "wav_format": "pcm",
-        "is_speaking": True,
-        "hotwords": hotwords or "",
-        "itn": bool(itn),
-    }
-
-    final_text = ""
-
-    async with websockets.connect(
-        uri,
-        subprotocols=["binary"],
-        ping_interval=None,
-        ssl=ssl_context,
-        max_size=8 * 1024 * 1024,
-    ) as ws:
-        await ws.send(json.dumps(init_payload, ensure_ascii=False))
-
-        for i in range(0, len(pcm), CHUNK_SIZE):
-            await ws.send(pcm[i : i + CHUNK_SIZE])
-
-        await ws.send(json.dumps({"is_speaking": False}))
-
-        while True:
-            msg = await ws.recv()
-            data = json.loads(msg)
-            text = (data.get("text") or "").strip()
-            if text:
-                final_text = text
-
-            if data.get("is_final") or data.get("mode") == "offline":
-                break
-
-    return final_text.strip() or None

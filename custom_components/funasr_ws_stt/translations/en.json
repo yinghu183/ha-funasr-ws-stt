@@ -2,16 +2,12 @@
   "config": {
     "step": {
       "user": {
-        "title": "FunASR WebSocket STT",
-        "description": "Connect Home Assistant STT to a FunASR websocket server.",
+        "title": "Doubao ASR",
+        "description": "Connect Home Assistant STT to a Doubao ASR HTTP service.",
         "data": {
           "name": "Name",
           "host": "Host",
           "port": "Port",
-          "ssl": "Use SSL",
-          "mode": "Recognition mode",
-          "hotwords": "Hotwords (optional)",
-          "itn": "Enable ITN",
           "timeout": "Timeout (seconds)"
         }
       }
@@ -20,11 +16,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "FunASR WebSocket STT options",
+        "title": "Doubao ASR options",
         "data": {
-          "mode": "Recognition mode",
-          "hotwords": "Hotwords (optional)",
-          "itn": "Enable ITN",
           "timeout": "Timeout (seconds)"
         }
       }
