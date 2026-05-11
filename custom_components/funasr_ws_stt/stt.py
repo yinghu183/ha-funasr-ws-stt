@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import wave
 from collections.abc import AsyncIterable
 
 import aiohttp
@@ -21,6 +23,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _pcm_to_wav(pcm_data: bytes, sample_rate: int, channels: int, sample_width: int) -> bytes:
+    """Wrap raw PCM data in a WAV container."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sample_width)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    return buf.getvalue()
 
 
 async def async_setup_entry(
@@ -81,6 +94,13 @@ class DoubaoAsrSttEntity(stt.SpeechToTextEntity):
 
         try:
             audio_bytes = b"".join([chunk async for chunk in stream])
+
+            # HA sends raw PCM — wrap in WAV container for the ASR service
+            if not audio_bytes.startswith(b"RIFF"):
+                bit_rate = metadata.bit_rate or 16
+                sample_rate = metadata.sample_rate or 16000
+                channels = metadata.channel or 1
+                audio_bytes = _pcm_to_wav(audio_bytes, sample_rate, channels, bit_rate // 8)
 
             timeout = aiohttp.ClientTimeout(total=timeout_sec)
             async with aiohttp.ClientSession(timeout=timeout) as session:
